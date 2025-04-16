@@ -98,3 +98,6 @@ docker-compose.override.yml
 
 # Environment configuration
 .python-version
+
+secret.key
+password.enc
