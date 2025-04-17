@@ -1,35 +1,146 @@
+import sys # Added for sys.exit
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QListWidget, QListWidgetItem, QLabel, 
-    QDialog, QLineEdit, QFormLayout, QMessageBox, QApplication # Added QApplication for clipboard
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QListWidget, QListWidgetItem, QLabel,
+    QDialog, QLineEdit, QFormLayout, QMessageBox, QApplication,
+    QStyle # Added QStyle import
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon # Added for icons
 import logic # Import the logic module
+
+# --- Stylesheet Definition ---
+STYLESHEET = """
+QMainWindow {
+    background-color: #f0f0f0; /* Light gray background */
+}
+
+QPushButton {
+    background-color: #007bff; /* Primary blue */
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 10pt;
+    min-width: 80px; /* Ensure buttons have a minimum width */
+}
+
+QPushButton:hover {
+    background-color: #0056b3; /* Darker blue on hover */
+}
+
+QPushButton:pressed {
+    background-color: #004085; /* Even darker blue when pressed */
+}
+
+/* Style delete button differently */
+QPushButton#deleteButton { /* Use object name for specific styling */
+    background-color: #dc3545; /* Red */
+}
+QPushButton#deleteButton:hover {
+    background-color: #c82333; /* Darker red */
+}
+QPushButton#deleteButton:pressed {
+    background-color: #bd2130; /* Even darker red */
+}
+
+
+QListWidget {
+    border: 1px solid #ced4da; /* Light gray border */
+    border-radius: 4px;
+    background-color: white;
+    font-size: 10pt;
+    padding: 5px;
+}
+
+QListWidget::item {
+    padding: 5px; /* Add padding to list items */
+}
+
+
+QListWidget::item:selected {
+    background-color: #007bff; /* Blue selection */
+    color: white;
+}
+
+QLabel {
+    font-size: 11pt;
+    font-weight: bold;
+    margin-bottom: 5px;
+    color: #333; /* Darker text color */
+}
+
+QLineEdit {
+    padding: 6px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 10pt;
+}
+
+QLineEdit:focus {
+    border-color: #80bdff; /* Highlight focus */
+}
+
+
+QDialog {
+    background-color: #f8f9fa; /* Slightly different background for dialogs */
+}
+
+/* Style dialog buttons */
+QDialog QPushButton {
+    padding: 6px 12px;
+    min-width: 70px;
+}
+
+QMessageBox {
+    font-size: 10pt;
+}
+/* Add some spacing */
+QVBoxLayout, QHBoxLayout, QFormLayout {
+    spacing: 10px; /* Add space between widgets in layouts */
+}
+QWidget { /* Add margin around the central widget */
+    margin: 10px;
+}
+
+"""
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Password Manager")
-        self.setGeometry(100, 100, 600, 400) # x, y, width, height
+        self.setGeometry(100, 100, 650, 450) # Adjusted size slightly
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        layout = QVBoxLayout()
-        central_widget.setLayout(layout)
+        layout = QVBoxLayout(central_widget) # Apply layout directly to widget
 
         # --- Widgets ---
         self.password_list = QListWidget()
-        self.add_button = QPushButton("Add Password")
-        self.edit_button = QPushButton("Edit Password")
-        self.delete_button = QPushButton("Delete Password")
-        self.copy_button = QPushButton("Copy Password")
+        self.add_button = QPushButton(" Add") # Add space for icon
+        self.edit_button = QPushButton(" Edit")
+        self.delete_button = QPushButton(" Delete")
+        self.copy_button = QPushButton(" Copy")
+
+        # --- Set Object Names for Specific Styling ---
+        self.delete_button.setObjectName("deleteButton")
+
+        # --- Add Icons ---
+        style = QApplication.style()
+        self.add_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder)) # Example icon
+        self.edit_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)) # Example icon
+        self.delete_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+        self.copy_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)) # Example icon (copy often uses 'save' appearance)
+
 
         # --- Layouts ---
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.add_button)
         button_layout.addWidget(self.edit_button)
         button_layout.addWidget(self.delete_button)
+        button_layout.addStretch() # Add stretch to push copy button to the right
         button_layout.addWidget(self.copy_button)
 
         layout.addWidget(QLabel("Stored Passwords:"))
@@ -41,7 +152,7 @@ class MainWindow(QMainWindow):
         self.passwords = logic.load_passwords(self.key)
         self.refresh_password_list()
 
-        # --- Connect Signals --- 
+        # --- Connect Signals ---
         self.add_button.clicked.connect(self.add_password_dialog)
         self.edit_button.clicked.connect(self.edit_password_dialog)
         self.delete_button.clicked.connect(self.delete_password)
@@ -136,13 +247,8 @@ class MainWindow(QMainWindow):
              clipboard = QApplication.clipboard()
              if clipboard: # Add check for None
                  clipboard.setText(password_to_copy)
-                 # Optional: Show status message - Requires QMainWindow status bar
-                 status_bar = self.statusBar()
-                 if status_bar: # Check if statusBar() returned a valid object
-                     status_bar.showMessage(f"Password for '{site}' copied to clipboard!", 2000) # Show for 2 seconds
-                 else:
-                     # Fallback if status bar isn't available (though unlikely for QMainWindow)
-                     print(f"Password for '{site}' copied to clipboard!")
+                 # Use QMessageBox for feedback as status bar might not be visible/styled yet
+                 QMessageBox.information(self, "Copied", f"Password for '{site}' copied to clipboard.")
              else:
                  QMessageBox.warning(self, "Clipboard Error", "Could not access the system clipboard.")
          else:
@@ -173,10 +279,10 @@ class PasswordDialog(QDialog):
         button_layout.addWidget(self.ok_button)
         button_layout.addWidget(self.cancel_button)
 
-        main_layout = QVBoxLayout()
+        main_layout = QVBoxLayout(self) # Apply layout directly
         main_layout.addLayout(form_layout)
         main_layout.addLayout(button_layout)
-        self.setLayout(main_layout)
+        # self.setLayout(main_layout) # No longer needed
 
         # Connect signals
         self.ok_button.clicked.connect(self.accept) # Built-in accept slot
@@ -189,3 +295,15 @@ class PasswordDialog(QDialog):
             self.username_edit.text().strip(),
             self.password_edit.text()
         )
+
+
+# --- Main Execution ---
+# This part should be in your main script file (e.g., main.py or at the end of gui.py if it's standalone)
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyleSheet(STYLESHEET) # Apply the stylesheet globally
+
+    window = MainWindow()
+    window.show()
+
+    sys.exit(app.exec())
