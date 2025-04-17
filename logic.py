@@ -194,18 +194,68 @@ def send_reset_email(email_address: str, token: str) -> bool:
     #        return False
     # --- End Real Implementation Notes ---
 
-    # --- Simulation --- 
-    print(f"--- EMAIL SIMULATION --- ")
-    print(f"To: {email_address}")
-    print(f"Subject: Password Reset Request")
-    print(f"Body: Your password reset token is: {token}")
-    print(f"      This token is valid for {TOKEN_VALIDITY_MINUTES} minutes.")
-    print(f"      Please enter this token in the application.")
-    print(f"------------------------")
-    print("INFO: This is a simulation. No email was actually sent.")
-    print("INFO: For real email sending, configure SMTP settings securely.")
-    # In simulation mode, always return True unless you want to test failure cases
-    return True
+    # --- Real Implementation --- 
+    # Get SMTP details securely from environment variables
+    SMTP_SERVER = os.environ.get('SMTP_SERVER')
+    SMTP_PORT = int(os.environ.get('SMTP_PORT', 587)) # Default to 587 (TLS)
+    EMAIL_SENDER = os.environ.get('EMAIL_SENDER')
+    EMAIL_PASSWORD = os.environ.get('EMAIL_APP_PASSWORD') # Use App Password for Gmail etc.
+
+    # Check if required variables are set
+    if not all([SMTP_SERVER, EMAIL_SENDER, EMAIL_PASSWORD]):
+        print("Error: Email configuration environment variables (SMTP_SERVER, SMTP_PORT, EMAIL_SENDER, EMAIL_APP_PASSWORD) not set.")
+        print("INFO: Email sending skipped.")
+        return False
+
+    # Construct the EmailMessage
+    msg = EmailMessage()
+    msg['Subject'] = "Password Reset Request"
+    msg['From'] = EMAIL_SENDER
+    msg['To'] = email_address
+    msg.set_content(f"Your password reset token is: {token}\n\n" \
+                    f"This token is valid for {TOKEN_VALIDITY_MINUTES} minutes.\n\n" \
+                    f"Please enter this token in the application to reset your master password.")
+
+    # Send using smtplib
+    try:
+        # Explicitly check SMTP_SERVER is not None before using it
+        if SMTP_SERVER is None:
+            # This case should theoretically be caught by the 'all' check above,
+            # but adding it here makes the type checker happy and adds robustness.
+            print("Error: SMTP_SERVER environment variable is not set.")
+            return False
+
+        # Use SMTP_SSL for port 465, otherwise use standard SMTP with starttls
+        if SMTP_PORT == 465:
+             # SMTP_SERVER is now guaranteed to be str here
+             with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+                assert isinstance(EMAIL_SENDER, str) # Added assertion
+                assert isinstance(EMAIL_PASSWORD, str) # Added assertion
+                server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+                server.send_message(msg)
+        else: # Assume port 587 or other requires STARTTLS
+            # SMTP_SERVER is now guaranteed to be str here
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls() # Upgrade connection to secure
+                assert isinstance(EMAIL_SENDER, str) # Added assertion
+                assert isinstance(EMAIL_PASSWORD, str) # Added assertion
+                server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+                server.send_message(msg)
+        print(f"Reset email successfully sent to {email_address}")
+        return True
+    except smtplib.SMTPAuthenticationError:
+        print("Error: SMTP Authentication failed. Check sender email/app password and ensure less secure app access is handled correctly if required by your provider.")
+        return False
+    except smtplib.SMTPServerDisconnected:
+        print("Error: Server disconnected unexpectedly. Check server address and port.")
+        return False
+    except smtplib.SMTPConnectError as e:
+        print(f"Error: Could not connect to SMTP server {SMTP_SERVER}:{SMTP_PORT}. Details: {e}")
+        return False
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+    # --- End Real Implementation ---
 
 # --- Password Data Encryption/Decryption ---
 def load_passwords(key: bytes) -> dict:

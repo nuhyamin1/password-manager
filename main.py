@@ -3,6 +3,9 @@ from PyQt6.QtWidgets import QApplication, QMessageBox, QInputDialog # Added QMes
 # Import necessary components from gui and logic
 from gui import MainWindow, SetupDialog, LoginDialog, handle_forgot_password, STYLESHEET
 import logic
+from dotenv import load_dotenv # Add this import
+
+load_dotenv() # Load environment variables from .env file
 
 def main():
     app = QApplication(sys.argv)

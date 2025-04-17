@@ -15,6 +15,20 @@ This application provides a graphical user interface (GUI) to add, edit, delete,
 *   **Secure Storage:** Passwords are encrypted using Fernet symmetric encryption (`cryptography` library) before being saved to a local file (`passwords.enc`).
 *   **Automatic Key Generation:** An encryption key (`secret.key`) is automatically generated on the first run if one doesn't exist.
 
+## Master Password
+
+The application uses a master password system for additional security:
+
+* On first run, you'll be prompted to create a master password
+* This password is hashed and stored in `config.json` (not tracked by git)
+* You must enter this password each time you open the application
+* The master password is used to derive the encryption key for your passwords
+
+**Important Notes:**
+* The master password cannot be recovered if forgotten (but you can reset it by deleting `config.json`)
+* Changing your master password will require re-encrypting all stored passwords
+* `config.json` contains sensitive data and should not be shared
+
 ## Requirements
 
 *   Python 3.x
