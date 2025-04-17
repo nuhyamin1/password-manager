@@ -100,4 +100,4 @@ docker-compose.override.yml
 .python-version
 
 secret.key
-password.enc
+passwords.enc
