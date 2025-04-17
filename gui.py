@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QListWidgetItem, QLabel,
     QDialog, QLineEdit, QFormLayout, QMessageBox, QApplication,
-    QStyle # Added QStyle import
+    QStyle, QDialogButtonBox, QInputDialog # Added QDialogButtonBox, QInputDialog
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon # Added for icons
@@ -107,10 +107,12 @@ QWidget { /* Add margin around the central widget */
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    # Key is now passed during initialization after successful login
+    def __init__(self, key): # Accept the key derived from master password
         super().__init__()
         self.setWindowTitle("Password Manager")
         self.setGeometry(100, 100, 650, 450) # Adjusted size slightly
+        self.key = key # Store the key
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -148,7 +150,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(button_layout)
 
         # --- Load Initial Data ---
-        self.key = logic.load_key()
+        # Key is already set, load passwords using it
         self.passwords = logic.load_passwords(self.key)
         self.refresh_password_list()
 
@@ -158,14 +160,20 @@ class MainWindow(QMainWindow):
         self.delete_button.clicked.connect(self.delete_password)
         self.copy_button.clicked.connect(self.copy_password)
         self.password_list.itemDoubleClicked.connect(self.edit_password_dialog) # Allow double-click to edit
- 
+
     def refresh_password_list(self):
          """Clears and repopulates the password list widget."""
          self.password_list.clear()
-         for site in sorted(self.passwords.keys()):
-             item = QListWidgetItem(site)
-             self.password_list.addItem(item)
- 
+         # Ensure passwords is a dictionary before iterating
+         if isinstance(self.passwords, dict):
+             for site in sorted(self.passwords.keys()):
+                 item = QListWidgetItem(site)
+                 self.password_list.addItem(item)
+         else:
+             # Handle case where passwords might be None or not a dict (e.g., decryption failed)
+             QMessageBox.critical(self, "Load Error", "Failed to load password data correctly.")
+             self.passwords = {} # Reset to empty dict
+
      # --- Button Action Implementations ---
     def add_password_dialog(self):
          """Opens a dialog to add a new password entry."""
@@ -212,7 +220,7 @@ class MainWindow(QMainWindow):
                      self.password_list.setCurrentItem(items[0])
              else:
                  QMessageBox.warning(self, "Missing Information", "Please fill in Username and Password fields.")
- 
+
     def delete_password(self):
          """Deletes the selected password entry after confirmation."""
          selected_item = self.password_list.currentItem()
@@ -233,7 +241,7 @@ class MainWindow(QMainWindow):
                  self.refresh_password_list()
              else:
                  QMessageBox.critical(self, "Error", f"Could not find data for '{site}' to delete.") # Should not happen
- 
+
     def copy_password(self):
          """Copies the password of the selected entry to the clipboard."""
          selected_item = self.password_list.currentItem()
@@ -270,23 +278,14 @@ class PasswordDialog(QDialog):
         form_layout.addRow("Username:", self.username_edit)
         form_layout.addRow("Password:", self.password_edit)
 
-        # Buttons
-        self.ok_button = QPushButton("OK")
-        self.cancel_button = QPushButton("Cancel")
+        # Standard Buttons
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
 
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        button_layout.addWidget(self.ok_button)
-        button_layout.addWidget(self.cancel_button)
-
-        main_layout = QVBoxLayout(self) # Apply layout directly
+        main_layout = QVBoxLayout(self)
         main_layout.addLayout(form_layout)
-        main_layout.addLayout(button_layout)
-        # self.setLayout(main_layout) # No longer needed
-
-        # Connect signals
-        self.ok_button.clicked.connect(self.accept) # Built-in accept slot
-        self.cancel_button.clicked.connect(self.reject) # Built-in reject slot
+        main_layout.addWidget(self.buttons)
 
     def get_details(self):
         """Returns the entered details as a tuple."""
@@ -297,13 +296,211 @@ class PasswordDialog(QDialog):
         )
 
 
-# --- Main Execution ---
-# This part should be in your main script file (e.g., main.py or at the end of gui.py if it's standalone)
+# --- Setup Dialog (for initial master password and recovery email) ---
+class SetupDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Initial Setup")
+        self.setModal(True) # Ensure it blocks main window
+
+        self.password_edit = QLineEdit()
+        self.password_edit.setPlaceholderText("Enter a strong master password")
+        self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.confirm_password_edit = QLineEdit()
+        self.confirm_password_edit.setPlaceholderText("Confirm master password")
+        self.confirm_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.email_edit = QLineEdit()
+        self.email_edit.setPlaceholderText("Enter recovery email (optional but recommended)")
+
+        form_layout = QFormLayout()
+        form_layout.addRow("Master Password:", self.password_edit)
+        form_layout.addRow("Confirm Password:", self.confirm_password_edit)
+        form_layout.addRow("Recovery Email:", self.email_edit)
+
+        # Buttons
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(QLabel("Welcome! Please set up your master password and recovery email."))
+        main_layout.addLayout(form_layout)
+        main_layout.addWidget(self.buttons)
+
+    def get_details(self):
+        password = self.password_edit.text()
+        confirm_password = self.confirm_password_edit.text()
+        email = self.email_edit.text().strip()
+        return password, confirm_password, email
+
+# --- Login Dialog ---
+class LoginDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Login")
+        self.setModal(True)
+
+        self.password_edit = QLineEdit()
+        self.password_edit.setPlaceholderText("Enter master password")
+        self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+
+        form_layout = QFormLayout()
+        form_layout.addRow("Master Password:", self.password_edit)
+
+        # Buttons
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        # Add Forgot Password button
+        self.forgot_password_button = self.buttons.addButton("Forgot Password?", QDialogButtonBox.ButtonRole.ActionRole)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        # Connect forgot password signal in the main execution block
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addLayout(form_layout)
+        main_layout.addWidget(self.buttons)
+
+    def get_password(self):
+        return self.password_edit.text()
+
+# --- Reset Password Dialog (Removed - using QInputDialog sequence now) ---
+# class ResetPasswordDialog(QDialog): ...
+
+# --- Forgot Password Handler --- (Moved outside classes)
+def handle_forgot_password(parent_dialog):
+    """Handles the 'Forgot Password' button click."""
+    recovery_email = logic.get_recovery_email()
+    if not recovery_email:
+        QMessageBox.warning(parent_dialog, "No Recovery Email", "No recovery email is configured for this account. Password reset is not possible.")
+        return
+
+    confirm = QMessageBox.question(parent_dialog, "Confirm Reset",
+                                   f"A password reset token will be sent to {recovery_email}. Proceed?",
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                   QMessageBox.StandardButton.No)
+
+    if confirm == QMessageBox.StandardButton.Yes:
+        token = logic.generate_reset_token()
+        logic.store_reset_token(token) # Store hashed token and expiry
+        # Simulate sending email
+        if logic.send_reset_email(recovery_email, token):
+            QMessageBox.information(parent_dialog, "Token Sent", f"A reset token has been sent to {recovery_email}. Check your inbox (and spam folder). It is valid for {logic.TOKEN_VALIDITY_MINUTES} minutes.")
+            # Now prompt for token and new password
+            prompt_for_reset_token(parent_dialog)
+        else:
+            QMessageBox.critical(parent_dialog, "Email Error", "Failed to send the reset token email (simulation failed). Check console/logs.")
+            logic.clear_reset_token() # Clean up token if email failed
+
+# --- Token/New Password Prompt --- (Moved outside classes)
+def prompt_for_reset_token(parent_dialog):
+    """Prompts the user for the reset token and new password using QInputDialog."""
+    token, ok = QInputDialog.getText(parent_dialog, "Enter Reset Token", "Enter the token received via email:")
+    if ok and token:
+        token = token.strip()
+        if logic.verify_reset_token(token):
+            # Token verified, now prompt for new password
+            new_password, ok_pass = QInputDialog.getText(parent_dialog, "Set New Password", "Enter your new master password:", QLineEdit.EchoMode.Password)
+            if ok_pass and new_password:
+                confirm_password, ok_confirm = QInputDialog.getText(parent_dialog, "Confirm New Password", "Confirm your new master password:", QLineEdit.EchoMode.Password)
+                if ok_confirm and confirm_password:
+                    if new_password == confirm_password:
+                        try:
+                            logic.set_master_password(new_password)
+                            logic.clear_reset_token() # Clear token after successful reset
+                            QMessageBox.information(parent_dialog, "Password Reset", "Master password has been successfully reset. The application will now close. Please restart and log in with your new password.")
+                            # Optionally close the parent dialog or exit app
+                            parent_dialog.reject() # Close the login dialog
+                            QApplication.instance().quit() # Exit the application
+                        except Exception as e:
+                            QMessageBox.critical(parent_dialog, "Error", f"Failed to set new master password: {e}")
+                    else:
+                        QMessageBox.warning(parent_dialog, "Password Mismatch", "The new passwords do not match.")
+                        # Optionally re-prompt or just fail here
+                else:
+                    QMessageBox.information(parent_dialog, "Cancelled", "Password reset cancelled (confirmation step).")
+            else:
+                QMessageBox.information(parent_dialog, "Cancelled", "Password reset cancelled (new password step).")
+        else:
+            QMessageBox.warning(parent_dialog, "Invalid Token", "The reset token is invalid or has expired.")
+            logic.clear_reset_token() # Clear invalid/expired token
+    else:
+        QMessageBox.information(parent_dialog, "Cancelled", "Password reset cancelled (token entry step).")
+
+
+# --- Main Execution --- (Handles Setup/Login before showing MainWindow)
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET) # Apply the stylesheet globally
 
-    window = MainWindow()
-    window.show()
+    authenticated_key = None # Will store the derived key upon successful login/setup
 
-    sys.exit(app.exec())
+    # --- Master Password Check and Login/Setup Flow ---
+    if not logic.check_master_password_set():
+        # First time setup
+        setup_dialog = SetupDialog()
+        while True:
+            if setup_dialog.exec():
+                password, confirm_password, email = setup_dialog.get_details()
+                if not password or not confirm_password:
+                    QMessageBox.warning(setup_dialog, "Input Error", "Master Password and Confirmation cannot be empty.")
+                    continue # Re-show setup dialog
+                if len(password) < 8: # Basic password strength check
+                     QMessageBox.warning(setup_dialog, "Weak Password", "Master password should be at least 8 characters long.")
+                     continue
+                if password != confirm_password:
+                    QMessageBox.warning(setup_dialog, "Password Mismatch", "The entered passwords do not match.")
+                    continue # Re-show setup dialog
+
+                # Passwords match and are not empty/weak
+                try:
+                    logic.set_master_password(password)
+                    if email: # Store email only if provided
+                        # Basic email format check (optional but good practice)
+                        if '@' not in email or '.' not in email.split('@')[-1]:
+                             QMessageBox.warning(setup_dialog, "Invalid Email", "Please enter a valid recovery email address or leave it blank.")
+                             continue # Re-show setup dialog
+                        logic.set_recovery_email(email)
+
+                    QMessageBox.information(None, "Setup Complete", "Master password and recovery email (if provided) have been set. Please log in.")
+                    # Don't authenticate yet, force login after setup
+                    break # Exit setup loop, proceed to login part
+                except Exception as e:
+                     QMessageBox.critical(setup_dialog, "Setup Error", f"Failed to save settings: {e}")
+                     continue # Re-show setup dialog if saving failed
+            else:
+                # User cancelled setup
+                sys.exit(0) # Exit the application if setup is cancelled
+
+    # --- Login Flow (Always runs after setup or if password was already set) ---
+    login_dialog = LoginDialog()
+    # Connect forgot password button signal HERE
+    login_dialog.forgot_password_button.clicked.connect(lambda: handle_forgot_password(login_dialog))
+
+    while True:
+        if login_dialog.exec():
+            entered_password = login_dialog.get_password()
+            if logic.verify_master_password(entered_password):
+                # Password correct, derive the key
+                authenticated_key = logic.load_key(entered_password)
+                if authenticated_key:
+                    break # Exit login loop, key is ready
+                else:
+                    # This case should be rare if verify passed, but handle it
+                    QMessageBox.critical(login_dialog, "Key Error", "Failed to derive encryption key even with correct password. Check config file.")
+                    # Keep login dialog open or exit? Exit might be safer.
+                    sys.exit(1)
+            else:
+                QMessageBox.warning(login_dialog, "Login Failed", "Incorrect master password.")
+                # Keep login dialog open
+        else:
+            # User cancelled login
+            sys.exit(0) # Exit the application if login is cancelled
+
+    # --- Show Main Window only if authenticated key is available ---
+    if authenticated_key:
+        window = MainWindow(authenticated_key) # Pass the key
+        window.show()
+        sys.exit(app.exec())
+    else:
+        # Should not happen if logic above is correct, but as a safeguard
+        print("Authentication failed or key derivation error. Exiting.")
+        sys.exit(1)
